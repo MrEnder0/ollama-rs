@@ -5,28 +5,22 @@ use std::process::Command;
 use serde_json::Value;
 
 
-pub struct Ollama {
-    model: Option<String>,
-}
+pub struct Ollama;
 
 impl Ollama {
-    pub fn new(model: Option<String>) -> Result<Ollama, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Ollama, Box<dyn std::error::Error>> {
         Command::new("ollama")
             .arg("serve");
 
-        Ok(Ollama { model })
+        Ok(Ollama)
     }
 
-    pub fn switch_model(&mut self, model: String) {
-        self.model = Some(model);
-    }
+    //pub fn preload_model(&mut self, model: String) {
+    //    Command::new("ollama")
+    //        .arg("serve");
+    //}
 
-    pub fn prompt(&self, prompt: String) -> Result<String, std::io::Error> {
-        match &self.model {
-            Some(model) => println!("Using model: {}", model),
-            None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "No model specified")),
-        }
-
+    pub fn prompt(&self, model: String, prompt: String) -> Result<String, std::io::Error> {
         // Default port 11434
         let mut stream = TcpStream::connect("127.0.0.1:11434")?;
 
@@ -36,7 +30,7 @@ impl Ollama {
                 "prompt": "{}",
                 "stream": false
             }}"#,
-            self.model.as_ref().unwrap(),
+            model,
             prompt
         );
 
@@ -91,8 +85,8 @@ mod tests {
 
     #[test]
     fn test_stream() {
-        let ollama = Ollama::new(Some("gemma3:27b".to_string())).unwrap();
-        let reply = ollama.prompt("Hello, world!".to_string()).unwrap();
+        let ollama = Ollama::new().unwrap();
+        let reply = ollama.prompt("gemma3:12b".to_string(), "Hello, world!".to_string()).unwrap();
         println!("Ollama reply: {}", reply);
         assert!(!reply.is_empty());
     }
