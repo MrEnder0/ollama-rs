@@ -1,13 +1,17 @@
 use serde_json::Value;
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::process::{Command, Stdio};
+
+use std::{
+    io::{Error, ErrorKind, Read, Write},
+    net::TcpStream,
+    process::{Command, Stdio},
+};
 
 pub struct Ollama {
     pub version: String,
 }
 
 impl Ollama {
+    // Ollama default port is 11434
     pub fn new() -> Result<Ollama, Box<dyn std::error::Error>> {
         let _ = Command::new("ollama")
             .arg("serve")
@@ -53,13 +57,47 @@ impl Ollama {
         }
     }
 
+    pub fn available_models() -> Result<Vec<String>, std::io::Error> {
+        let mut stream = TcpStream::connect("127.0.0.1:11434")?;
+        let request = "GET /api/tags HTTP/1.1\r\n\
+                   Host: localhost\r\n\
+                   Connection: close\r\n\r\n";
+
+        stream.write_all(request.as_bytes())?;
+        let mut response = String::new();
+        stream.read_to_string(&mut response)?;
+
+        let body_start = response
+            .find("\r\n\r\n")
+            .ok_or_else(|| Error::new(ErrorKind::Other, "Invalid HTTP response (missing body)"))?
+            + 4;
+
+        let json_body = &response[body_start..];
+        let parsed: Value = serde_json::from_str(json_body)
+            .map_err(|e| Error::new(ErrorKind::Other, format!("JSON parse error: {}", e)))?;
+
+        let models_arr = parsed["models"]
+            .as_array()
+            .ok_or_else(|| Error::new(ErrorKind::Other, "Invalid models format in response"))?;
+
+        let models = models_arr
+            .iter()
+            .filter_map(|m| {
+                m.get("name")
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect();
+
+        Ok(models)
+    }
+
     //pub fn preload_model(&mut self, model: String) {
     //    Command::new("ollama")
     //        .arg("serve");
     //}
 
     pub fn prompt(&self, model: String, prompt: String) -> Result<String, std::io::Error> {
-        // Connect to Ollama (default port 11434)
         let mut stream = TcpStream::connect("127.0.0.1:11434")?;
 
         let body = format!(
@@ -136,10 +174,25 @@ mod tests {
     }
 
     #[test]
+    fn test_available_models() {
+        let models = Ollama::available_models().unwrap();
+        println!("Available models: {:?}", models);
+        assert!(!models.is_empty());
+    }
+
+    #[test]
     fn test_prompt() {
         let ollama = Ollama::new().unwrap();
+        let available_models = Ollama::available_models().unwrap();
+        if available_models.is_empty() {
+            panic!("No available models to test prompt");
+        }
+
+        let model = &available_models[0];
+        println!("Testing prompt with model: {}", model);
+
         let reply = ollama
-            .prompt("gemma3:1b".to_string(), "Hello, world!".to_string())
+            .prompt(model.to_string(), "Hello, world!".to_string())
             .unwrap();
         println!("Ollama reply: {}", reply);
         assert!(!reply.is_empty());
